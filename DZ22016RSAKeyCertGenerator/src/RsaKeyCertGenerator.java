@@ -1,8 +1,9 @@
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -17,7 +18,6 @@ import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
-import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.Security;
 import java.security.cert.CertificateException;
@@ -27,7 +27,15 @@ import java.util.Date;
 import java.util.Properties;
 import java.util.Random;
 import java.util.Scanner;
-import java.util.logging.LoggingMXBean;
+
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JTextArea;
+import javax.swing.JTextField;
 
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.asn1.x500.X500NameBuilder;
@@ -51,6 +59,15 @@ import org.bouncycastle.pkcs.PKCSException;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequest;
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
 
+
+/**
+ * Class is meant to generate RSA Keys, create certificate request (.csr file), sign certificate (.cer file), 
+ * package private key and signed certificate into PKCS12 file format (.p12 file) and
+ * write .p12 password on console (gui component).
+ *  
+ * @author ognjen klincov
+ *
+ */
 public class RsaKeyCertGenerator {
 
 	Scanner sc = null;
@@ -67,8 +84,7 @@ public class RsaKeyCertGenerator {
 	public static void main(String[] args) {
 		RsaKeyCertGenerator rsaKeyCertGenerator = new RsaKeyCertGenerator();
 
-		rsaKeyCertGenerator.doBusinessLogic();
-		
+		rsaKeyCertGenerator.startGui(); 
 	
 	}
 
@@ -78,7 +94,7 @@ public class RsaKeyCertGenerator {
 	 * writes .p12 password on console
 	 * 
 	 */
-	public void doBusinessLogic() {
+	public String doBusinessLogic(X500Name distinguishedNames, int keyLength) {
 		Properties props = null;
 		String csrPath = null;
 		String certPath = null;
@@ -86,7 +102,7 @@ public class RsaKeyCertGenerator {
 		String caKeyPath = null;
 		String p12FilePath = null;
 		int passLength = 0;
-		long yearsNumber = 0L;
+
 		
 		
 		try {
@@ -106,18 +122,20 @@ public class RsaKeyCertGenerator {
 				caKeyPath = props.getProperty("caKeyPath");
 				p12FilePath = props.getProperty("p12FilePath");
 				passLength = Integer.parseInt(props.getProperty("passLength"));
-				yearsNumber = Long.parseLong(props.getProperty("yearsNumber"));
-			}
-			else
-				System.out.println("Ne postoji config file!");
-				
-			//int keyLength = 1024;
-			int keyLength = getKeyLengthFromConslole();
 
+			}
+			else{
+				System.out.println("Ne postoji config file!");
+				return "";
+			}
+			
+			//generate key pair
+			//int keyLength = getKeyLengthFromConslole();
 			KeyPair keyPair = genRsaKeys(keyLength);
 
 			//create Distinguished Names (dn)
-			X500Name distinguishedNames = getDNFromConsole();
+			//X500Name distinguishedNames = getDNFromConsole();
+			//note used anymore becouse because of gui implementation
 			
 			// certificate request creation
 			JcaPKCS10CertificationRequest jcaCsr = createJcaCertificateRequest(keyPair, distinguishedNames);
@@ -132,9 +150,7 @@ public class RsaKeyCertGenerator {
 			KeyPair caKeyPair = getCaKeyPair(caKeyPath);
 
 			// sign certificate
-			X509Certificate certificate = null;
-			if(yearsNumber > 0)
-				certificate = signCertificate(caKeyPair, issuerCert, jcaCsr, yearsNumber);
+			X509Certificate certificate = signCertificate(caKeyPair, issuerCert, jcaCsr, 3L);
 			
 			// save cert as file
 			writeCertToFile(certificate, certPath);
@@ -146,36 +162,21 @@ public class RsaKeyCertGenerator {
 			System.out.println("\nAll done!");
 			System.out.println("PKCS12 password: ");
 			System.out.println(passwd);
+			
+			return passwd;
 
 
-		} catch (OperatorCreationException e) {
-			// TODO Auto-generated catch block
+
+		} catch (NoSuchAlgorithmException | NoSuchProviderException | OperatorCreationException | IOException | InvalidKeyException | CertificateException | KeyStoreException | PKCSException e) {
 			e.printStackTrace();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (InvalidKeyException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (NoSuchAlgorithmException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (CertificateException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (NoSuchProviderException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		} catch (Exception e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			return "";
 		} finally {
 			sc.close();
 		}
+		
 	}
 
 	/**
-	 * 
 	 * Inputs key bit length from console.
 	 * 
 	 * @return
@@ -273,6 +274,41 @@ public class RsaKeyCertGenerator {
 				line = sc.nextLine();
 		} while (line.length() < 1);
 		nameBuilder.addRDN(BCStyle.E, line);
+
+		return nameBuilder.build();
+	}
+
+	/**
+	 * Get Distinguished Names (DN) from GUI, for certificate and certificate request creation
+	 * 
+	 * @param c
+	 * @param st
+	 * @param l
+	 * @param o
+	 * @param ou
+	 * @param cn
+	 * @param e
+	 * @return
+	 */
+	public X500Name getDNFromGui(
+			String c, 
+			String st,
+			String l, 
+			String o,
+			String ou, 
+			String cn,
+			String e
+			) {
+
+		X500NameBuilder nameBuilder = new X500NameBuilder(BCStyle.INSTANCE);
+		
+		nameBuilder.addRDN(BCStyle.CN, c.toUpperCase());
+		nameBuilder.addRDN(BCStyle.ST, st);
+		nameBuilder.addRDN(BCStyle.L, l);
+		nameBuilder.addRDN(BCStyle.O, o);
+		nameBuilder.addRDN(BCStyle.OU, ou);
+		nameBuilder.addRDN(BCStyle.CN, cn);
+		nameBuilder.addRDN(BCStyle.E, e);
 
 		return nameBuilder.build();
 	}
@@ -508,5 +544,145 @@ public class RsaKeyCertGenerator {
 		return passwd;
 	}
 	
+	public void startGui(){
+		
+		JFrame frame = new JFrame("RSA key gen csr cer");
+		JPanel panel = new JPanel();
+	
+		JLabel cLabel = new JLabel("C");
+		JTextField cTextField = new JTextField("BA");
+		JLabel stLabel = new JLabel("ST");
+		JTextField stTextField = new JTextField("RS");
+		JLabel lLabel = new JLabel("L");
+		JTextField lTextField = new JTextField("BL");
+		JLabel oLabel = new JLabel("O");
+		JTextField oTextField = new JTextField("Ognjen Inc.");
+		JLabel ouLabel = new JLabel("OU");
+		JTextField ouTextField = new JTextField("Ogi");
+		JLabel cnLabel = new JLabel("CN");
+		JTextField cnTextField = new JTextField("Ognjen Klincov");
+		JLabel eLabel = new JLabel("E");
+		JTextField eTextField = new JTextField("ognjenkl@gmail.com");
+		JLabel keyLengthLabel = new JLabel("Key length");
+		Integer [] keyLenthValues = new Integer[2];
+		keyLenthValues[0] = new Integer(1024);
+		keyLenthValues[1] = new Integer(2048);
+		JComboBox<Integer> keyLengthCombo = new JComboBox<>(keyLenthValues);
+		
+		JButton button = new JButton("Create PKCS12");
+		
+		
+		
+		frame.setSize(600, 600);
+		frame.setLocation(600, 100);
+		frame.setResizable(false);
+		frame.add(panel);
+		panel.setLayout(null);
+		
+		int alignLable = 150;
+		int alignComponent = 220;
+		
+		cLabel.setBounds(alignLable, 30, 300, 30);
+		panel.add(cLabel);
+		cTextField.setBounds(alignComponent, 30, 300, 30);
+		panel.add(cTextField);
+		stLabel.setBounds(alignLable, 70, 300, 30);
+		panel.add(stLabel);
+		stTextField.setBounds(alignComponent, 70, 300, 30);
+		panel.add(stTextField);
+		lLabel.setBounds(alignLable, 110, 300, 30);
+		panel.add(lLabel);
+		lTextField.setBounds(alignComponent, 110, 300, 30);
+		panel.add(lTextField);
+		oLabel.setBounds(alignLable, 150, 300, 30);
+		panel.add(oLabel);
+		oTextField.setBounds(alignComponent, 150, 300, 30);
+		panel.add(oTextField);
+		ouLabel.setBounds(alignLable, 190, 300, 30);
+		panel.add(ouLabel);
+		ouTextField.setBounds(alignComponent, 190, 300, 30);
+		panel.add(ouTextField);
+		cnLabel.setBounds(alignLable, 230, 300, 30);
+		panel.add(cnLabel);
+		cnTextField.setBounds(alignComponent, 230, 300, 30);
+		panel.add(cnTextField);
+		eLabel.setBounds(alignLable, 270, 300, 30);
+		panel.add(eLabel);
+		eTextField.setBounds(alignComponent, 270, 300, 30);
+		panel.add(eTextField);
+		
+		keyLengthLabel.setBounds(alignLable, 350, 300, 30);
+		panel.add(keyLengthLabel);
+		keyLengthCombo.setBounds(alignComponent, 350, 300, 30);
+		panel.add(keyLengthCombo);
+		
+		
+		button.setBounds(alignComponent, 450, 300, 100);
+		panel.add(button);
+		
+		
+		button.addActionListener(new ActionListener() {
+			
+			@Override
+			public void actionPerformed(ActionEvent ex) {
+				
+				String c = cTextField.getText();
+				String st = stTextField.getText();
+				String l = lTextField.getText();
+				String o = oTextField.getText();
+				String ou = ouTextField.getText();
+				String cn = cnTextField.getText();
+				String e = eTextField.getText();
+				
+				if(c.length() != 2){
+					JOptionPane.showMessageDialog(frame, "C value is incorect", "Error", JOptionPane.ERROR_MESSAGE);
+				}
+				else if(st.length() == 0){
+					JOptionPane.showMessageDialog(frame, "ST value is incorect", "Error", JOptionPane.ERROR_MESSAGE);
+				}
+				else if(l.length() == 0){
+					JOptionPane.showMessageDialog(frame, "L value is incorect", "Error", JOptionPane.ERROR_MESSAGE);
+				}
+				else if(o.length() == 0){
+					JOptionPane.showMessageDialog(frame, "O value is incorect", "Error", JOptionPane.ERROR_MESSAGE);
+				}
+				else if(ou.length() == 0){
+					JOptionPane.showMessageDialog(frame, "OU value is incorect", "Error", JOptionPane.ERROR_MESSAGE);
+				}
+				else if(cn.length() == 0){
+					JOptionPane.showMessageDialog(frame, "CN value is incorect", "Error", JOptionPane.ERROR_MESSAGE);
+				}
+				else if(e.length() == 0){
+					JOptionPane.showMessageDialog(frame, "E value is incorect", "Error", JOptionPane.ERROR_MESSAGE);
+				} else{
+
+					X500Name dn = getDNFromGui(
+							cTextField.getText(), 
+							stTextField.getText(), 
+							lTextField.getText(), 
+							oTextField.getText(), 
+							ouTextField.getText(), 
+							cnTextField.getText(), 
+							eTextField.getText());
+					
+					int keyLength = Integer.parseInt(keyLengthCombo.getSelectedItem().toString());
+					
+					String passwd = doBusinessLogic(dn, keyLength);
+					
+					if(passwd.equals(""))
+						JOptionPane.showMessageDialog(frame, ".p12 file creation failed!", "Confirmation", JOptionPane.INFORMATION_MESSAGE);
+					else{
+						JTextArea area = new JTextArea(".p12 file created with certificate and key with length: "+keyLength+".\n Your passord is:\n"+passwd);
+						area.setEditable(false);
+						JOptionPane.showMessageDialog(frame, area, "Confirmation", JOptionPane.INFORMATION_MESSAGE);
+					}
+				}
+			}
+		});
+		
+		
+		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		frame.setVisible(true);
+	}
 	
 }
